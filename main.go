@@ -71,7 +71,10 @@ func main() {
 		defer queryTicker.Stop()
 
 		for range queryTicker.C {
-			pow.FinalizeRewards()
+			err := pow.FinalizeRewards()
+			if err != nil {
+				slog.Error("FinalizeRewards failed", "err", err)
+			}
 		}
 	}()
 

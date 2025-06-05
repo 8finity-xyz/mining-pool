@@ -250,7 +250,11 @@ func (pow *LocalPow) FinalizeRewards() error {
 		}
 		shares[minerAddress] = share
 	}
-	pow.submitter.FinalizeRewards(shares)
+
+	err = pow.submitter.FinalizeRewards(shares)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

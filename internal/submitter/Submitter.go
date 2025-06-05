@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"database/sql"
+	"errors"
 	"infinity/pool/internal"
 	"infinity/pool/internal/contracts/PoW"
 	"infinity/pool/internal/contracts/PoolRegistry"
@@ -38,11 +39,13 @@ type Submitter struct {
 	// submit contract info
 	powAddress  common.Address
 	pow         PoW.PoW
-	powInstance bind.BoundContract
+	powInstance *bind.BoundContract
 
 	// claim contract info
-	poolRegistryAddress common.Address
-	poolRegistryDomain  apitypes.TypedDataDomain
+	poolRegistryAddress  common.Address
+	poolRegistry         PoolRegistry.PoolRegistry
+	poolRegistryInstance *bind.BoundContract
+	poolRegistryDomain   apitypes.TypedDataDomain
 }
 
 const gasLimit = uint64(1_000_000)
@@ -123,17 +126,19 @@ func NewSubmitter(chainClient *ethclient.Client, pdb *sql.DB, poolPrivateKey []b
 	}
 
 	return &Submitter{
-		PoolId:              poolId.Uint64(),
-		pdb:                 pdb,
-		Address:             address,
-		nonce:               nonce,
-		privateKey:          privateKey,
-		chainClient:         chainClient,
-		chainId:             chainId,
-		powAddress:          powAddress,
-		poolRegistryAddress: poolRegistryAddress,
-		pow:                 pow,
-		powInstance:         *powInstance,
+		PoolId:               poolId.Uint64(),
+		pdb:                  pdb,
+		Address:              address,
+		nonce:                nonce,
+		privateKey:           privateKey,
+		chainClient:          chainClient,
+		chainId:              chainId,
+		powAddress:           powAddress,
+		poolRegistryAddress:  poolRegistryAddress,
+		poolRegistry:         poolRegistry,
+		poolRegistryInstance: poolRegistryInstance,
+		pow:                  pow,
+		powInstance:          powInstance,
 		poolRegistryDomain: apitypes.TypedDataDomain{
 			Name:              poolRegistryDomain.Name,
 			Version:           poolRegistryDomain.Version,
@@ -243,7 +248,7 @@ func (s *Submitter) FinalizeRewards(shares map[string]*big.Float) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	totalShare := new(big.Float) // Defaults to 0
+	totalShare := big.NewFloat(0)
 	for _, share := range shares {
 		totalShare.Add(totalShare, share)
 	}
@@ -256,10 +261,40 @@ func (s *Submitter) FinalizeRewards(shares map[string]*big.Float) error {
 		return err
 	}
 	if count == 0 {
-		slog.Info("Skip FinalizeRewards - nothing to submit")
+		slog.Debug("Skip FinalizeRewards - nothing to submit")
 		return nil
 	}
 
+	auth := bind.NewKeyedTransactor(s.privateKey, s.chainId)
+	tx, err := bind.Transact(s.poolRegistryInstance, auth, s.poolRegistry.PackFinalizeReward(big.NewInt(0)))
+	if err != nil {
+		return err
+	}
+
+	receipt, err := waitForTransactionReceipt(context.Background(), s.chainClient, tx.Hash())
+	if err != nil {
+		return err
+	}
+
+	if receipt.Status == types.ReceiptStatusFailed {
+		return errors.New("finalize rewards transaction failed")
+	}
+
+	minerReward := big.NewInt(0)
+	for _, log := range receipt.Logs {
+		if log.Address != s.powAddress {
+			continue
+		}
+		rewardsFinalized, _ := s.poolRegistry.UnpackRewardsFinalizedEvent(log)
+		if rewardsFinalized != nil {
+			minerReward.Add(minerReward, rewardsFinalized.Reward)
+			minerReward.Sub(minerReward, rewardsFinalized.PoolFee)
+			minerReward.Sub(minerReward, rewardsFinalized.SubmitsCost)
+			break
+		}
+	}
+
+	slog.Debug("FinalizeRewards finished", "submitsCount", count, "minerReward", utils.WeiToEther(minerReward).String())
 	return nil
 }
 
