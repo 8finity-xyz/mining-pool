@@ -35,7 +35,7 @@ var (
 	Rpc            = Getenv("INFINITY_POOL_RPC", "https://rpc.soniclabs.com")
 	Ws             = Getenv("INFINITY_POOL_WS", "wss://rpc.soniclabs.com")
 	PoolPrivateKey = common.FromHex(Getenv("INFINITY_POOL_PRIVATE_KEY", ""))
-	RedisAddress   = Getenv("INFINITY_POOL_REDIS_ADDRESS", "")
+	RedisUri       = Getenv("INFINITY_POOL_REDIS_URI", "")
 	PostgresUri    = Getenv("INFINITY_POOL_POSTGRES_URI", "")
 	PoolPort       = Getenv("INFINITY_POOL_PORT", ":18888")
 	LogLevel       = Getenv("LOGLEVEL", "")
@@ -46,7 +46,12 @@ func main() {
 	l.UnmarshalText([]byte(LogLevel))
 	slog.SetLogLoggerLevel(l)
 
-	rdb := redis.NewClient(&redis.Options{Addr: RedisAddress})
+	redisOptions, err := redis.ParseURL(RedisUri)
+	if err != nil {
+		log.Fatalf("Can't parse redis uri, %v", err)
+	}
+	rdb := redis.NewClient(redisOptions)
+
 	pdb, err := sql.Open("postgres", PostgresUri)
 	if err != nil {
 		log.Fatalf("Can't create postgress client, %v", err)
@@ -99,6 +104,8 @@ func requestHandler(pow *localpow.LocalPow, submitter *submitter.Submitter) func
 		default:
 			ctx.Error("Unsupported path", fasthttp.StatusNotFound)
 		}
+
+		slog.Debug(string(ctx.Path()), "status", ctx.Response.StatusCode())
 	}
 }
 
@@ -113,7 +120,7 @@ func submitHandler(
 	}
 	minerAddress := common.HexToAddress(miner)
 
-	privateKeyB, err := crypto.HexToECDSA(string(ctx.QueryArgs().Peek("private_key_b")))
+	privateKeyB, err := crypto.ToECDSA(common.FromHex(string(ctx.QueryArgs().Peek("private_key_b"))))
 	if err != nil {
 		ctx.Error(fmt.Sprintf("private_key_b param - %v", err), fasthttp.StatusBadRequest)
 		return
