@@ -233,7 +233,6 @@ func (pow *LocalPow) adjustDifficulty(minerAddress common.Address, currentDiffic
 
 func (pow *LocalPow) FinalizeRewards() error {
 	pow.globalLock.Lock()
-
 	ctx := context.Background()
 	sharesRaw, err := pow.rdb.HGetAll(ctx, sharesKey).Result()
 	if err != nil {
@@ -244,18 +243,35 @@ func (pow *LocalPow) FinalizeRewards() error {
 
 	shares := make(map[string]*big.Float, len(sharesRaw))
 	for minerAddress, sharesRaw := range sharesRaw {
-		share, ok := new(big.Float).SetString(sharesRaw)
-		if !ok {
-			continue
-		}
+		share, _ := new(big.Float).SetString(sharesRaw)
 		shares[minerAddress] = share
 	}
 
-	err = pow.submitter.FinalizeRewards(shares)
+	finalizeRewardsErr := pow.submitter.FinalizeRewards(shares)
+	if finalizeRewardsErr == nil {
+		return nil
+	}
+
+	pow.globalLock.Lock()
+	defer pow.globalLock.Unlock()
+	newSharesRaw, err := pow.rdb.HGetAll(ctx, sharesKey).Result()
 	if err != nil {
 		return err
 	}
-	return nil
+
+	for minerAddress, share := range shares {
+		newShareRaw, ok := newSharesRaw[minerAddress]
+
+		var newShare *big.Float
+		if ok {
+			newShare, _ = new(big.Float).SetString(newShareRaw)
+		} else {
+			newShare = big.NewFloat(0)
+		}
+		pow.rdb.HSet(ctx, sharesKey, minerAddress, share.Add(share, newShare).String())
+	}
+
+	return finalizeRewardsErr
 }
 
 func max(a *big.Int, b *big.Int) *big.Int {
