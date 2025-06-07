@@ -104,6 +104,8 @@ func requestHandler(pow *localpow.LocalPow, submitter *submitter.Submitter) func
 			problemHandler(ctx, pow)
 		case "/claim":
 			claimHandler(ctx, submitter)
+		case "/hashrate":
+			hashrateHandler(ctx, pow)
 		default:
 			ctx.Error("Unsupported path", fasthttp.StatusNotFound)
 		}
@@ -178,4 +180,14 @@ func claimHandler(ctx *fasthttp.RequestCtx, submitter *submitter.Submitter) {
 			Signature   string `json:"signature"`
 		}{submitter.PoolId, totalReward.String(), "0x" + common.Bytes2Hex(signature)})
 	}
+}
+
+func hashrateHandler(ctx *fasthttp.RequestCtx, pow *localpow.LocalPow) {
+	ctx.Response.Header.Set("Access-Control-Allow-Credentials", "true")
+	ctx.Response.Header.SetBytesV("Access-Control-Allow-Origin", ctx.Request.Header.Peek("Origin"))
+	ctx.SetStatusCode(fasthttp.StatusOK)
+	ctx.SetContentType("application/json")
+	json.NewEncoder(ctx.Response.BodyWriter()).Encode(struct {
+		Hashrate float64 `json:"hashrate"`
+	}{Hashrate: pow.Hashrate()})
 }

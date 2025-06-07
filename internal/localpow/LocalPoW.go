@@ -21,8 +21,8 @@ import (
 var (
 	magic                 = new(big.Int).SetBytes(common.FromHex("0x8888888888888888888888888888888888888888"))
 	submitsPrefix         = "submits:"
-	difficultyPrefix      = "difficulty:"
-	sharesKey             = "shares"
+	difficultyKey         = "infinityPool.difficulty"
+	sharesKey             = "infinityPool.shares"
 	speedNumSubmits       = int64(100)
 	speedTime             = int64(100)
 	maxDifficultyIncrease = int64(8)
@@ -91,10 +91,6 @@ func (pow *LocalPow) GetProblem(minerAddress common.Address) (*big.Int, *big.Int
 		return nil, nil, errors.Join(errors.New("can't construct privateKeyA'"), err1, err2)
 	}
 
-	if err != nil {
-		return nil, nil, errors.Join(errors.New("can't construct privateKeyA'"), err)
-	}
-
 	difficulty, err := pow.getMinerDifficulty(minerAddress)
 	if err != nil {
 		return nil, nil, err
@@ -123,7 +119,7 @@ func (pow *LocalPow) lockFor(minerAddress common.Address) (unlock func()) {
 }
 
 func (pow *LocalPow) getMinerDifficulty(minerAddress common.Address) (*big.Int, error) {
-	difficultyRaw, err := pow.rdb.Get(context.Background(), difficultyPrefix+minerAddress.String()).Result()
+	difficultyRaw, err := pow.rdb.HGet(context.Background(), difficultyKey, minerAddress.String()).Result()
 
 	switch {
 	case err == redis.Nil:
@@ -192,7 +188,7 @@ func (pow *LocalPow) adjustDifficulty(minerAddress common.Address, currentDiffic
 	ctx := context.Background()
 	key := submitsPrefix + minerAddress.String()
 
-	numSubmits, err := pow.rdb.LPush(ctx, key, time.Now()).Result()
+	numSubmits, err := pow.rdb.LPush(ctx, key, time.Now().Unix()).Result()
 	go pow.rdb.Expire(ctx, key, time.Duration(speedTime)*time.Second)
 	if err != nil {
 		return errors.Join(fmt.Errorf("can't save submit"), err)
@@ -206,7 +202,8 @@ func (pow *LocalPow) adjustDifficulty(minerAddress common.Address, currentDiffic
 	pow.rdb.Del(ctx, key)
 
 	duration := lastSubmit - firstSubmit
-	adjustedDifficulty := new(big.Int).Mul(currentDifficulty, big.NewInt(duration))
+	adjustedDifficulty := new(big.Int).Set(currentDifficulty)
+	adjustedDifficulty.Mul(currentDifficulty, big.NewInt(duration))
 	adjustedDifficulty.Div(adjustedDifficulty, big.NewInt(speedTime))
 
 	if adjustedDifficulty.Cmp(common.MaxAddress.Big()) > 0 {
@@ -223,8 +220,16 @@ func (pow *LocalPow) adjustDifficulty(minerAddress common.Address, currentDiffic
 		pow.problemProvider.Problem.Difficulty,
 	)
 
-	key = difficultyPrefix + minerAddress.String()
-	err = pow.rdb.Set(ctx, key, adjustedDifficulty.String(), time.Duration(speedTime)*time.Second).Err()
+	err = pow.rdb.HSetEXWithArgs(
+		ctx,
+		difficultyKey,
+		&redis.HSetEXOptions{
+			ExpirationType: redis.HSetEXExpirationEX,
+			ExpirationVal:  speedTime,
+		},
+		minerAddress.String(),
+		adjustedDifficulty.String(),
+	).Err()
 	if err != nil {
 		return err
 	}
@@ -272,6 +277,25 @@ func (pow *LocalPow) FinalizeRewards() error {
 	}
 
 	return finalizeRewardsErr
+}
+
+func (pow *LocalPow) Hashrate() float64 {
+	ctx := context.Background()
+	difficultiesRaw, err := pow.rdb.HGetAll(ctx, difficultyKey).Result()
+	if err != nil {
+		return 0
+	}
+
+	hashrate := big.NewFloat(0)
+	maxDifficulty := new(big.Float).SetInt(common.MaxAddress.Big())
+	for minerAddress, difficultyRaw := range difficultiesRaw {
+		difficulty, _ := new(big.Float).SetString(difficultyRaw)
+		log.Print(minerAddress, difficultyRaw, difficulty.String())
+		hashrate.Add(hashrate, new(big.Float).Quo(maxDifficulty, difficulty))
+	}
+
+	h, _ := hashrate.Float64()
+	return h
 }
 
 func max(a *big.Int, b *big.Int) *big.Int {

@@ -280,6 +280,7 @@ func (s *Submitter) FinalizeRewards(shares map[string]*big.Float) error {
 		return errors.New("finalize rewards transaction failed")
 	}
 
+	s.pdb.Query(finalizeTxs)
 	minerReward := big.NewInt(0)
 	for _, log := range receipt.Logs {
 		if log.Address != s.powAddress {
