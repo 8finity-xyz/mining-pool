@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"database/sql"
 	"errors"
+	"fmt"
 	"infinity/pool/internal"
 	"infinity/pool/internal/contracts/PoW"
 	"infinity/pool/internal/contracts/PoolRegistry"
@@ -12,6 +13,7 @@ import (
 	"log"
 	"log/slog"
 	"math/big"
+	"strings"
 	"sync"
 	"time"
 
@@ -49,11 +51,11 @@ type Submitter struct {
 }
 
 const gasLimit = uint64(1_000_000)
-const createSubmitsTable = `
+const createTables = `
 CREATE TABLE IF NOT EXISTS submits (
-    tx_hash TEXT PRIMARY KEY,
-    tx_cost NUMERIC(38, 18) NOT NULL,
-    reward NUMERIC(38, 18) NOT NULL,
+    tx_hash VARCHAR(66) PRIMARY KEY,
+    tx_cost NUMERIC(78, 0) NOT NULL,
+    reward NUMERIC(78, 0) NOT NULL,
     block BIGINT NOT NULL,
     finalized BOOLEAN NOT NULL DEFAULT FALSE
 );
@@ -63,6 +65,15 @@ ON submits (block);
 
 CREATE INDEX IF NOT EXISTS idx_submits_finalized
 ON submits (finalized);
+
+CREATE TABLE IF NOT EXISTS rewards (
+    miner VARCHAR(42) PRIMARY KEY,
+    amount       NUMERIC(78, 0) NOT NULL DEFAULT 0,
+    updated_at   TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_rewards_miner
+ON submits (block);
 `
 const insertSubmit = `
 	INSERT INTO submits (tx_hash, tx_cost, reward, block)
@@ -83,7 +94,7 @@ UPDATE submits SET finalized = TRUE WHERE finalized = FALSE;
 `
 
 func NewSubmitter(chainClient *ethclient.Client, pdb *sql.DB, poolPrivateKey []byte) *Submitter {
-	_, err := pdb.Exec(createSubmitsTable)
+	_, err := pdb.Exec(createTables)
 	if err != nil {
 		log.Fatalf("Can't init db, %v", err)
 	}
@@ -176,7 +187,6 @@ func (s *Submitter) Submit(privateKeyB *ecdsa.PrivateKey, privateKeyAB *ecdsa.Pr
 		return err
 	}
 
-	// signature
 	data := common.Hex2Bytes(internal.Data)
 	var packed []byte
 	packed = append(packed, s.poolRegistryAddress.Bytes()...)
@@ -235,7 +245,7 @@ func (s *Submitter) Submit(privateKeyB *ecdsa.PrivateKey, privateKeyAB *ecdsa.Pr
 	} else {
 		reward = common.Big0
 	}
-	_, err = s.pdb.Exec(insertSubmit, tx.Hash().Hex(), utils.WeiToEther(txCost).String(), utils.WeiToEther(reward).String(), receipt.BlockNumber.String())
+	_, err = s.pdb.Exec(insertSubmit, tx.Hash().Hex(), txCost.String(), reward.String(), receipt.BlockNumber.String())
 	if err != nil {
 		slog.Error(err.Error())
 		return err
@@ -244,20 +254,15 @@ func (s *Submitter) Submit(privateKeyB *ecdsa.PrivateKey, privateKeyAB *ecdsa.Pr
 	return nil
 }
 
-func (s *Submitter) FinalizeRewards(shares map[string]*big.Float) error {
+func (s *Submitter) FinalizeRewards(shares map[string]*big.Int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	totalShare := big.NewFloat(0)
-	for _, share := range shares {
-		totalShare.Add(totalShare, share)
-	}
 
 	var costStr string
 	var count int
 
-	stats := s.pdb.QueryRow(unfinalizedStats)
-	if err := stats.Scan(&costStr, &count); err != nil {
+	err := s.pdb.QueryRow(unfinalizedStats).Scan(&costStr, &count)
+	if err != nil {
 		return err
 	}
 	if count == 0 {
@@ -281,26 +286,66 @@ func (s *Submitter) FinalizeRewards(shares map[string]*big.Float) error {
 	}
 
 	s.pdb.Query(finalizeTxs)
-	minerReward := big.NewInt(0)
+	minersReward := big.NewInt(0)
 	for _, log := range receipt.Logs {
-		if log.Address != s.powAddress {
-			continue
-		}
 		rewardsFinalized, _ := s.poolRegistry.UnpackRewardsFinalizedEvent(log)
 		if rewardsFinalized != nil {
-			minerReward.Add(minerReward, rewardsFinalized.Reward)
-			minerReward.Sub(minerReward, rewardsFinalized.PoolFee)
-			minerReward.Sub(minerReward, rewardsFinalized.SubmitsCost)
+			minersReward.Add(minersReward, rewardsFinalized.Reward)
+			minersReward.Sub(minersReward, rewardsFinalized.PoolFee)
+			minersReward.Sub(minersReward, rewardsFinalized.SubmitsCost)
 			break
 		}
 	}
 
-	slog.Debug("FinalizeRewards finished", "submitsCount", count, "minerReward", utils.WeiToEther(minerReward).String())
+	totalShare := big.NewInt(0)
+	for _, share := range shares {
+		totalShare.Add(totalShare, share)
+	}
+
+	type MinerReward struct {
+		minerAddress string
+		amount       *big.Int
+	}
+
+	rewards := []MinerReward{}
+	for minerAddress, share := range shares {
+		reward := new(big.Int)
+		reward.Mul(minersReward, share)
+		reward.Div(reward, totalShare)
+		rewards = append(rewards, MinerReward{minerAddress: minerAddress, amount: reward})
+	}
+
+	var query strings.Builder
+	query.WriteString("INSERT INTO rewards (miner, amount, updated_at) VALUES ")
+	args := []any{}
+
+	for i, r := range rewards {
+		query.WriteString(fmt.Sprintf("($%d, $%d, $%d)", i*3+1, i*3+2, i*3+3))
+		if (i + 1) != len(rewards) {
+			query.WriteString(", ")
+		}
+		args = append(args, r.minerAddress, r.amount.String(), time.Now())
+	}
+	query.WriteString(" ON CONFLICT (miner) DO UPDATE SET amount = rewards.amount + EXCLUDED.amount, updated_at = EXCLUDED.updated_at;")
+	s.pdb.Exec(query.String(), args...)
+
+	slog.Debug("FinalizeRewards finished", "submitsCount", count, "minersReward", utils.WeiToEther(minersReward).String())
 	return nil
 }
 
 func (s *Submitter) GetClaimInfo(minerAddress common.Address) (*big.Int, []byte, error) {
-	totalReward := big.NewInt(0)
+	var totalRewardRaw string
+	totalReward := new(big.Int)
+	err := s.pdb.QueryRow("SELECT amount FROM rewards WHERE miner = $1", minerAddress.Hex()).Scan(&totalRewardRaw)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			totalReward.SetInt64(0)
+		}
+		return nil, nil, err
+	} else {
+		totalReward.SetString(totalRewardRaw, 10)
+	}
+
 	digest, _, err := apitypes.TypedDataAndHash(apitypes.TypedData{
 		Types: apitypes.Types{
 			"EIP712Domain": {

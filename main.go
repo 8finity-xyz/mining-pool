@@ -10,14 +10,12 @@ import (
 	"infinity/pool/internal/utils"
 	"log"
 	"log/slog"
-	"math/big"
 	"os"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/ethereum/go-ethereum/params"
 	_ "github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 	"github.com/valyala/fasthttp"
@@ -84,10 +82,11 @@ func main() {
 	log.Printf("∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞")
 	log.Printf("Pool id: #%d", submitter.PoolId)
 	log.Printf("Pool operator address: %s", submitter.Address)
-	log.Printf("Pool operator balance: %f $S", new(big.Float).Quo(new(big.Float).SetInt(submitterBalance), big.NewFloat(params.Ether)))
+	log.Printf("Pool operator balance: %f $S", utils.WeiToEther(submitterBalance))
 	log.Printf("Ensure, that it have enough funds\n\n")
 	if err == nil {
 		log.Printf("Pool address: http://%s:%s", publicIp, PoolPort)
+		log.Printf("Make sure your VPN is off and your ISP isn’t blocking the port.")
 	}
 	log.Printf("∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞")
 

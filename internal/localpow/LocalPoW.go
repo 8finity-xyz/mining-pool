@@ -119,17 +119,7 @@ func (pow *LocalPow) lockFor(minerAddress common.Address) (unlock func()) {
 }
 
 func (pow *LocalPow) getMinerDifficulty(minerAddress common.Address) (*big.Int, error) {
-	difficultyRaw, err := pow.rdb.HGet(context.Background(), difficultyKey, minerAddress.String()).Result()
-
-	switch {
-	case err == redis.Nil:
-		return common.MaxAddress.Big(), nil
-	case err != nil:
-		return nil, err
-	default:
-		difficulty, _ := new(big.Int).SetString(difficultyRaw, 0)
-		return difficulty, nil
-	}
+	return loadBigInt(pow.rdb.HGet(context.Background(), difficultyKey, minerAddress.String()), common.MaxAddress.Big())
 }
 
 func (pow *LocalPow) processSubmit(minerAddress common.Address, difficulty *big.Int, privateKeyB *ecdsa.PrivateKey) error {
@@ -168,20 +158,12 @@ func (pow *LocalPow) processSubmit(minerAddress common.Address, difficulty *big.
 func (pow *LocalPow) rewardMiner(minerAddress common.Address, difficulty *big.Int) error {
 	ctx := context.Background()
 
-	share := new(big.Float).Quo(new(big.Float).SetInt(common.MaxAddress.Big()), new(big.Float).SetInt(difficulty))
-
-	sharesRaw, err := pow.rdb.HGet(ctx, sharesKey, minerAddress.String()).Result()
-	shares := new(big.Float)
-	switch {
-	case err == redis.Nil:
-		shares = share
-	case err != nil:
+	share := new(big.Int).Div(common.MaxAddress.Big(), difficulty)
+	shares, err := loadBigInt(pow.rdb.HGet(ctx, sharesKey, minerAddress.String()), big.NewInt(0))
+	if err != nil {
 		return err
-	default:
-		shares.SetString(sharesRaw)
 	}
-
-	return pow.rdb.HSet(ctx, sharesKey, minerAddress.String(), new(big.Float).Add(shares, share).String()).Err()
+	return pow.rdb.HSet(ctx, sharesKey, minerAddress.String(), shares.Add(shares, share).String()).Err()
 }
 
 func (pow *LocalPow) adjustDifficulty(minerAddress common.Address, currentDifficulty *big.Int) error {
@@ -246,10 +228,12 @@ func (pow *LocalPow) FinalizeRewards() error {
 	pow.rdb.Del(ctx, sharesKey)
 	pow.globalLock.Unlock()
 
-	shares := make(map[string]*big.Float, len(sharesRaw))
+	shares := make(map[string]*big.Int, len(sharesRaw))
 	for minerAddress, sharesRaw := range sharesRaw {
-		share, _ := new(big.Float).SetString(sharesRaw)
-		shares[minerAddress] = share
+		share, ok := new(big.Int).SetString(sharesRaw, 10)
+		if ok {
+			shares[minerAddress] = share
+		}
 	}
 
 	finalizeRewardsErr := pow.submitter.FinalizeRewards(shares)
@@ -267,13 +251,14 @@ func (pow *LocalPow) FinalizeRewards() error {
 	for minerAddress, share := range shares {
 		newShareRaw, ok := newSharesRaw[minerAddress]
 
-		var newShare *big.Float
+		var newShare *big.Int
 		if ok {
-			newShare, _ = new(big.Float).SetString(newShareRaw)
+			newShare, _ = new(big.Int).SetString(newShareRaw, 10)
+			newShare.Add(newShare, share)
 		} else {
-			newShare = big.NewFloat(0)
+			newShare = share
 		}
-		pow.rdb.HSet(ctx, sharesKey, minerAddress, share.Add(share, newShare).String())
+		pow.rdb.HSet(ctx, sharesKey, minerAddress, newShare.String())
 	}
 
 	return finalizeRewardsErr
@@ -303,4 +288,23 @@ func max(a *big.Int, b *big.Int) *big.Int {
 		return a
 	}
 	return b
+}
+
+func loadBigInt(cmd *redis.StringCmd, defaultValue *big.Int) (*big.Int, error) {
+	valueRaw, err := cmd.Result()
+
+	switch {
+	case err == redis.Nil:
+		return defaultValue, nil
+	case err != nil:
+		return nil, err
+	default:
+		value, ok := new(big.Int).SetString(valueRaw, 10)
+		if ok {
+			return value, nil
+		} else {
+			return nil, fmt.Errorf("can't parse %s", valueRaw)
+		}
+	}
+
 }
