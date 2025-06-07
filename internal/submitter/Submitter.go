@@ -136,7 +136,7 @@ func NewSubmitter(chainClient *ethclient.Client, pdb *sql.DB, poolPrivateKey []b
 		log.Fatalf("Can't get pool registry domain, %v", err)
 	}
 
-	return &Submitter{
+	submitter := Submitter{
 		PoolId:               poolId.Uint64(),
 		pdb:                  pdb,
 		Address:              address,
@@ -157,6 +157,17 @@ func NewSubmitter(chainClient *ethclient.Client, pdb *sql.DB, poolPrivateKey []b
 			VerifyingContract: poolRegistryDomain.VerifyingContract.Hex(),
 		},
 	}
+
+	go func() {
+		queryTicker := time.NewTicker(time.Second)
+		defer queryTicker.Stop()
+
+		for range queryTicker.C {
+			submitter.nonce, _ = chainClient.PendingNonceAt(context.Background(), address)
+		}
+	}()
+
+	return &submitter
 }
 
 func (s *Submitter) GetBalance() (*big.Int, error) {
@@ -275,6 +286,7 @@ func (s *Submitter) FinalizeRewards(shares map[string]*big.Int) error {
 	if err != nil {
 		return err
 	}
+	s.nonce++
 
 	receipt, err := waitForTransactionReceipt(context.Background(), s.chainClient, tx.Hash())
 	if err != nil {
