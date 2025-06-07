@@ -37,7 +37,7 @@ var (
 	PoolPrivateKey = common.FromHex(Getenv("INFINITY_POOL_PRIVATE_KEY", ""))
 	RedisUri       = Getenv("INFINITY_POOL_REDIS_URI", "")
 	PostgresUri    = Getenv("INFINITY_POOL_POSTGRES_URI", "")
-	PoolPort       = Getenv("INFINITY_POOL_PORT", ":18888")
+	PoolPort       = Getenv("INFINITY_POOL_PORT", "18888")
 	LogLevel       = Getenv("LOGLEVEL", "")
 )
 
@@ -87,7 +87,7 @@ func main() {
 	log.Printf("∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞")
 
 	h := fasthttp.CompressHandler(requestHandler(pow, submitter))
-	if err := fasthttp.ListenAndServe("0.0.0.0"+PoolPort, h); err != nil {
+	if err := fasthttp.ListenAndServe("0.0.0.0:"+PoolPort, h); err != nil {
 		log.Fatalf("Error in ListenAndServe: %v", err)
 	}
 }

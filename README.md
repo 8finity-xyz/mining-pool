@@ -40,6 +40,7 @@ The pool can be configured through environment variables in the `.env` file. Her
 - `INFINITY_POOL_REDIS_URI`: Redis connection string for caching
 - `INFINITY_POOL_POSTGRES_URI`: PostgreSQL connection string for persistent storage
 - `INFINITY_POOL_PRIVATE_KEY`: Your private key for pool operations
+- `INFINITY_POOL_PORT`: Pool server port (18888 by default)
 
 ## Stopping the Pool
 
