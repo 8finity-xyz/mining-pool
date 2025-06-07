@@ -7,6 +7,7 @@ import (
 	"infinity/pool/internal/localpow"
 	"infinity/pool/internal/problemprovider"
 	"infinity/pool/internal/submitter"
+	"infinity/pool/internal/utils"
 	"log"
 	"log/slog"
 	"math/big"
@@ -79,11 +80,15 @@ func main() {
 	}()
 
 	submitterBalance, _ := submitter.GetBalance()
+	publicIp, err := utils.GetPublicIp()
 	log.Printf("∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞")
 	log.Printf("Pool id: #%d", submitter.PoolId)
 	log.Printf("Pool operator address: %s", submitter.Address)
 	log.Printf("Pool operator balance: %f $S", new(big.Float).Quo(new(big.Float).SetInt(submitterBalance), big.NewFloat(params.Ether)))
-	log.Printf("Ensure, that it have enough funds")
+	log.Printf("Ensure, that it have enough funds\n\n")
+	if err == nil {
+		log.Printf("Pool address: http://%s:%s", publicIp, PoolPort)
+	}
 	log.Printf("∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞∞")
 
 	h := fasthttp.CompressHandler(requestHandler(pow, submitter))
