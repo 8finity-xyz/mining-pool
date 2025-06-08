@@ -184,6 +184,8 @@ func claimHandler(ctx *fasthttp.RequestCtx, submitter *submitter.Submitter) {
 			Signature   string `json:"signature"`
 		}{submitter.PoolId, totalReward.String(), "0x" + common.Bytes2Hex(signature)})
 	}
+	ctx.Response.Header.Set("Access-Control-Allow-Credentials", "true")
+	ctx.Response.Header.SetBytesV("Access-Control-Allow-Origin", ctx.Request.Header.Peek("Origin"))
 }
 
 func hashrateHandler(ctx *fasthttp.RequestCtx, pow *localpow.LocalPow) {

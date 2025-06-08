@@ -266,6 +266,11 @@ func (s *Submitter) Submit(privateKeyB *ecdsa.PrivateKey, privateKeyAB *ecdsa.Pr
 }
 
 func (s *Submitter) FinalizeRewards(shares map[string]*big.Int) error {
+	if len(shares) == 0 {
+		slog.Debug("Skip FinalizeRewards - nothing to submit")
+		return nil
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -352,8 +357,9 @@ func (s *Submitter) GetClaimInfo(minerAddress common.Address) (*big.Int, []byte,
 	if err != nil {
 		if err == sql.ErrNoRows {
 			totalReward.SetInt64(0)
+		} else {
+			return nil, nil, err
 		}
-		return nil, nil, err
 	} else {
 		totalReward.SetString(totalRewardRaw, 10)
 	}
