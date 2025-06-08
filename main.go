@@ -165,6 +165,14 @@ func problemHandler(ctx *fasthttp.RequestCtx, pow *localpow.LocalPow) {
 }
 
 func claimHandler(ctx *fasthttp.RequestCtx, submitter *submitter.Submitter) {
+	ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
+	ctx.Response.Header.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	ctx.Response.Header.Set("Access-Control-Allow-Headers", "Content-Type")
+	if string(ctx.Method()) == fasthttp.MethodOptions {
+		ctx.SetStatusCode(fasthttp.StatusNoContent)
+		return
+	}
+
 	miner := string(ctx.QueryArgs().Peek("miner"))
 	if !common.IsHexAddress(miner) {
 		ctx.Error("miner param - not an address", fasthttp.StatusBadRequest)
@@ -184,13 +192,17 @@ func claimHandler(ctx *fasthttp.RequestCtx, submitter *submitter.Submitter) {
 			Signature   string `json:"signature"`
 		}{submitter.PoolId, totalReward.String(), "0x" + common.Bytes2Hex(signature)})
 	}
-	ctx.Response.Header.Set("Access-Control-Allow-Credentials", "true")
-	ctx.Response.Header.SetBytesV("Access-Control-Allow-Origin", ctx.Request.Header.Peek("Origin"))
 }
 
 func hashrateHandler(ctx *fasthttp.RequestCtx, pow *localpow.LocalPow) {
-	ctx.Response.Header.Set("Access-Control-Allow-Credentials", "true")
-	ctx.Response.Header.SetBytesV("Access-Control-Allow-Origin", ctx.Request.Header.Peek("Origin"))
+	ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
+	ctx.Response.Header.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	ctx.Response.Header.Set("Access-Control-Allow-Headers", "Content-Type")
+	if string(ctx.Method()) == fasthttp.MethodOptions {
+		ctx.SetStatusCode(fasthttp.StatusNoContent)
+		return
+	}
+
 	ctx.SetStatusCode(fasthttp.StatusOK)
 	ctx.SetContentType("application/json")
 	json.NewEncoder(ctx.Response.BodyWriter()).Encode(struct {
