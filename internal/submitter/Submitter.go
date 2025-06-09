@@ -266,11 +266,6 @@ func (s *Submitter) Submit(privateKeyB *ecdsa.PrivateKey, privateKeyAB *ecdsa.Pr
 }
 
 func (s *Submitter) FinalizeRewards(shares map[string]*big.Int) error {
-	if len(shares) == 0 {
-		slog.Debug("Skip FinalizeRewards - nothing to submit")
-		return nil
-	}
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -286,8 +281,14 @@ func (s *Submitter) FinalizeRewards(shares map[string]*big.Int) error {
 		return nil
 	}
 
+	cost, _ := new(big.Int).SetString(costStr, 10)
+	submitsCost, err := utils.QuoteS28(cost)
+	if err != nil {
+		return err
+	}
+
 	auth := bind.NewKeyedTransactor(s.privateKey, s.chainId)
-	tx, err := bind.Transact(s.poolRegistryInstance, auth, s.poolRegistry.PackFinalizeReward(big.NewInt(0)))
+	tx, err := bind.Transact(s.poolRegistryInstance, auth, s.poolRegistry.PackFinalizeReward(submitsCost))
 	if err != nil {
 		return err
 	}

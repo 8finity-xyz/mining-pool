@@ -70,9 +70,9 @@ func main() {
 		defer queryTicker.Stop()
 
 		for range queryTicker.C {
-			err := pow.FinalizeRewards()
+			err := pow.DistributeRewards()
 			if err != nil {
-				slog.Error("FinalizeRewards failed", "err", err)
+				slog.Error("DistributeRewards failed", "err", err)
 			}
 		}
 	}()

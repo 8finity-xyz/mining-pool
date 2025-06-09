@@ -218,15 +218,17 @@ func (pow *LocalPow) adjustDifficulty(minerAddress common.Address, currentDiffic
 	return nil
 }
 
-func (pow *LocalPow) FinalizeRewards() error {
-	pow.globalLock.Lock()
+func (pow *LocalPow) DistributeRewards() error {
 	ctx := context.Background()
+
+	pow.globalLock.Lock()
 	sharesRaw, err := pow.rdb.HGetAll(ctx, sharesKey).Result()
-	if err != nil {
-		return err
-	}
 	pow.rdb.Del(ctx, sharesKey)
 	pow.globalLock.Unlock()
+
+	if err != nil || len(sharesRaw) == 0 {
+		return err
+	}
 
 	shares := make(map[string]*big.Int, len(sharesRaw))
 	for minerAddress, sharesRaw := range sharesRaw {
