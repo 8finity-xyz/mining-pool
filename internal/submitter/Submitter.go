@@ -84,6 +84,7 @@ const insertSubmit = `
 const unfinalizedStats = `
 SELECT
 	COALESCE(SUM(tx_cost), 0) cost,
+	COALESCE(SUM(reward), 0) reward,
 	COUNT(*) count
 FROM submits
 WHERE finalized = FALSE;
@@ -270,9 +271,10 @@ func (s *Submitter) FinalizeRewards(shares map[string]*big.Int) error {
 	defer s.mu.Unlock()
 
 	var costStr string
+	var rewardStr string
 	var count int
 
-	err := s.pdb.QueryRow(unfinalizedStats).Scan(&costStr, &count)
+	err := s.pdb.QueryRow(unfinalizedStats).Scan(&costStr, &rewardStr, &count)
 	if err != nil {
 		return err
 	}
@@ -282,13 +284,14 @@ func (s *Submitter) FinalizeRewards(shares map[string]*big.Int) error {
 	}
 
 	cost, _ := new(big.Int).SetString(costStr, 10)
+	reward, _ := new(big.Int).SetString(rewardStr, 10)
 	submitsCost, err := utils.QuoteS28(cost)
 	if err != nil {
 		return err
 	}
 
 	auth := bind.NewKeyedTransactor(s.privateKey, s.chainId)
-	tx, err := bind.Transact(s.poolRegistryInstance, auth, s.poolRegistry.PackFinalizeReward(submitsCost))
+	tx, err := bind.Transact(s.poolRegistryInstance, auth, s.poolRegistry.PackFinalizeReward(utils.MinBigInt(reward, submitsCost)))
 	if err != nil {
 		return err
 	}

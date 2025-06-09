@@ -192,12 +192,12 @@ func (pow *LocalPow) adjustDifficulty(minerAddress common.Address, currentDiffic
 		adjustedDifficulty = common.MaxAddress.Big()
 	}
 
-	adjustedDifficulty = max(
+	adjustedDifficulty = utils.MaxBigInt(
 		adjustedDifficulty,
 		new(big.Int).Div(currentDifficulty, big.NewInt(maxDifficultyIncrease)),
 	)
 
-	adjustedDifficulty = max(
+	adjustedDifficulty = utils.MaxBigInt(
 		adjustedDifficulty,
 		pow.problemProvider.Problem.Difficulty,
 	)
@@ -282,13 +282,6 @@ func (pow *LocalPow) Hashrate() float64 {
 
 	h, _ := hashrate.Float64()
 	return h
-}
-
-func max(a *big.Int, b *big.Int) *big.Int {
-	if a.Cmp(b) > 0 {
-		return a
-	}
-	return b
 }
 
 func loadBigInt(cmd *redis.StringCmd, defaultValue *big.Int) (*big.Int, error) {
