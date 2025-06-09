@@ -207,7 +207,7 @@ func (pow *LocalPow) adjustDifficulty(minerAddress common.Address, currentDiffic
 		difficultyKey,
 		&redis.HSetEXOptions{
 			ExpirationType: redis.HSetEXExpirationEX,
-			ExpirationVal:  speedTime,
+			ExpirationVal:  2 * speedTime,
 		},
 		minerAddress.String(),
 		adjustedDifficulty.String(),
