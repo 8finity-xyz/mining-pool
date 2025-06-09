@@ -275,9 +275,8 @@ func (pow *LocalPow) Hashrate() float64 {
 
 	hashrate := big.NewFloat(0)
 	maxDifficulty := new(big.Float).SetInt(common.MaxAddress.Big())
-	for minerAddress, difficultyRaw := range difficultiesRaw {
+	for _, difficultyRaw := range difficultiesRaw {
 		difficulty, _ := new(big.Float).SetString(difficultyRaw)
-		log.Print(minerAddress, difficultyRaw, difficulty.String())
 		hashrate.Add(hashrate, new(big.Float).Quo(maxDifficulty, difficulty))
 	}
 
